@@ -34,7 +34,7 @@ BOOT_DIR="$HOME/.termux/boot"
 BOOT_FILE="$BOOT_DIR/sshphone-start"
 AUTH_KEYS="$HOME/.ssh/authorized_keys"
 BASHRC="$HOME/.bashrc"
-DISTRO_ROOT="$PREFIX/var/lib/proot-distro/installed-rootfs"
+PD_DIR="$PREFIX/var/lib/proot-distro"
 
 HOOK_BEGIN="# >>> sshphone >>>"
 HOOK_END="# <<< sshphone <<<"
@@ -192,7 +192,25 @@ sshd_pid() {
 
 sshd_running() { [ -n "$(sshd_pid)" ]; }
 
-distro_installed() { [ -n "${1:-}" ] && [ -d "$DISTRO_ROOT/$1" ]; }
+# Eski proot-distro: installed-rootfs/<ad>, yeni (OCI) sürüm: containers/<ad>/rootfs
+distro_installed() {
+    [ -n "${1:-}" ] || return 1
+    [ -d "$PD_DIR/installed-rootfs/$1" ] || [ -d "$PD_DIR/containers/$1/rootfs" ]
+}
+
+# Takılı kalmış eski oturumlar yüzünden "container is busy" hatası alınmasın diye
+# bu dağıtıma ait proot süreçlerini durdurur.
+stop_distro_sessions() {
+    local d="$1" pids
+    pids=$( { pgrep -f "^[^ ]*proot[^ ]* .*(installed-rootfs|containers)/$d/" ; pgrep -f "proot-distro (login|install|run) $d"; } 2>/dev/null \
+        | grep -vx "$$" | sort -u | tr '\n' ' ')
+    [ -n "${pids// /}" ] || return 0
+    warn "$d için açık kalmış eski oturumlar kapatılıyor (PID: $pids)"
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null; sleep 2
+    # shellcheck disable=SC2086
+    kill -9 $pids 2>/dev/null || true
+}
 
 # --------------------------------------------------------------------------- #
 #  Ağ bilgisi
@@ -487,6 +505,7 @@ install_distro() {
     if distro_installed "$d"; then
         ok "$d zaten kurulu."
     else
+        stop_distro_sessions "$d"
         step "$d kuruluyor (internet hızınıza göre birkaç dakika sürebilir)"
         proot-distro install "$d" || die "$d kurulamadı. Geçerli adlar için: proot-distro list"
         ok "$d kuruldu. Giriş: sshphone linux"
@@ -546,7 +565,8 @@ case $- in
         if [ -n "$SSH_CONNECTION" ] && [ -z "$SSHPHONE_INSIDE" ]; then
             sshphone motd
             if [ "${SSHPHONE_AUTOLOGIN:-no}" = yes ] && [ -n "$SSHPHONE_DISTRO" ] \
-               && [ -d "$PREFIX/var/lib/proot-distro/installed-rootfs/$SSHPHONE_DISTRO" ]; then
+               && { [ -d "$PREFIX/var/lib/proot-distro/installed-rootfs/$SSHPHONE_DISTRO" ] \
+                    || [ -d "$PREFIX/var/lib/proot-distro/containers/$SSHPHONE_DISTRO/rootfs" ]; }; then
                 export SSHPHONE_INSIDE=1
                 exec proot-distro login "$SSHPHONE_DISTRO"
             fi
