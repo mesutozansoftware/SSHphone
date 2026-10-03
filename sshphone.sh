@@ -193,6 +193,13 @@ sshd_pid() {
 sshd_running() { [ -n "$(sshd_pid)" ]; }
 
 # Eski proot-distro: installed-rootfs/<ad>, yeni (OCI) sürüm: containers/<ad>/rootfs
+# Dağıtımın kök dosya sistemi (eski veya yeni proot-distro düzeni)
+distro_rootfs() {
+    if [ -d "$PD_DIR/containers/$1/rootfs" ]; then echo "$PD_DIR/containers/$1/rootfs"
+    elif [ -d "$PD_DIR/installed-rootfs/$1" ]; then echo "$PD_DIR/installed-rootfs/$1"
+    fi
+}
+
 distro_installed() {
     [ -n "${1:-}" ] || return 1
     [ -d "$PD_DIR/installed-rootfs/$1" ] || [ -d "$PD_DIR/containers/$1/rootfs" ]
@@ -513,8 +520,20 @@ setup_distro_tools() {
     stop_distro_sessions "$d"
     local out rc log
     log=$(mktemp)
-    proot-distro login "$d" -- sh -c "$inner" 2>&1 | tee "$log"
-    rc=$?
+    # Uzun/çok satırlı komutu argüman olarak vermek yerine dağıtımın içine bir
+    # betik dosyası yazıp çalıştır (yeni proot-distro sürümlerinde daha güvenilir).
+    local rootfs
+    rootfs=$(distro_rootfs "$d")
+    if [ -n "$rootfs" ] && mkdir -p "$rootfs/tmp" 2>/dev/null \
+       && printf '%s\n' "$inner" >"$rootfs/tmp/sshphone-setup.sh"; then
+        info "Kurulum betiği: $rootfs/tmp/sshphone-setup.sh"
+        proot-distro login "$d" -- /bin/sh /tmp/sshphone-setup.sh </dev/null 2>&1 | tee "$log"
+        rc=$?
+        rm -f "$rootfs/tmp/sshphone-setup.sh"
+    else
+        proot-distro login "$d" -- sh -c "$inner" </dev/null 2>&1 | tee "$log"
+        rc=$?
+    fi
     out=$(cat "$log"); rm -f "$log"
     if [ "$rc" -eq 0 ]; then
         ok "$d içine temel araçlar kuruldu."
