@@ -230,22 +230,25 @@ describe_iface() {
 # --------------------------------------------------------------------------- #
 #  Paketler
 # --------------------------------------------------------------------------- #
+# Termux kısmi yükseltmeyi desteklemez (ör. yeni curl + eski openssl = curl
+# çalışmaz) ve 'pkg' kendisi de curl kullanır. Bu yüzden doğrudan apt
+# kullanılır ve kurulumdan önce sistem her zaman tam yükseltilir.
+APT_OPTS=(-y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+
 pkg_install() {
-    DEBIAN_FRONTEND=noninteractive pkg install -y \
-        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$@"
+    DEBIAN_FRONTEND=noninteractive apt-get install "${APT_OPTS[@]}" "$@"
 }
 
 update_system() {
     step "Paket listesi güncelleniyor"
-    if ! DEBIAN_FRONTEND=noninteractive pkg update -y \
-            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold; then
+    if ! DEBIAN_FRONTEND=noninteractive apt-get update; then
         warn "Güncelleme başarısız. Ayna sunucusunu değiştirmek için: termux-change-repo"
-        confirm "Yine de devam edilsin mi?" e || exit 1
+        confirm "Yine de devam edilsin mi?" h || exit 1
     fi
-    if confirm "Kurulu paketler yükseltilsin mi? (önerilir)" e; then
-        DEBIAN_FRONTEND=noninteractive pkg upgrade -y \
-            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
-            || warn "Yükseltme sırasında hata oluştu, devam ediliyor."
+    step "Kurulu paketler yükseltiliyor (Termux'ta zorunludur)"
+    if ! DEBIAN_FRONTEND=noninteractive apt-get full-upgrade "${APT_OPTS[@]}"; then
+        warn "Yükseltme tamamlanamadı. Elle deneyin: apt update && apt full-upgrade"
+        confirm "Yine de devam edilsin mi?" h || exit 1
     fi
 }
 

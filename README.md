@@ -29,10 +29,16 @@ Android telefonunuzu **SSH ile bağlanılabilen bir Linux sunucusuna (VDS)** dö
 Termux'u açın ve çalıştırın:
 
 ```bash
+apt update && apt full-upgrade -y
 pkg install -y curl
 curl -fsSL https://raw.githubusercontent.com/mesutozansoftware/SSHphone/main/sshphone.sh -o sshphone.sh
 bash sshphone.sh
 ```
+
+> İlk satır önemlidir: yeni kurulan Termux'ta yalnızca `pkg install curl` çalıştırmak
+> `CANNOT LINK EXECUTABLE "curl": cannot locate symbol ...` hatasına yol açar (kısmi yükseltme).
+> Bu hatayı aldıysanız yine `apt update && apt full-upgrade -y` çalıştırmanız yeterlidir.
+> Yükseltme sırasında yapılandırma dosyası sorulursa Enter'a basın.
 
 Sihirbaz sırasıyla şunları sorar: SSH portu, giriş parolası, (isteğe bağlı) SSH açık anahtarı,
 (isteğe bağlı) Linux dağıtımı, depolama izni ve wake-lock. Sonunda bağlantı komutunu gösterir:
