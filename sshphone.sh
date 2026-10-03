@@ -490,11 +490,14 @@ setup_distro_tools() {
             printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf
             echo "[i] DNS ayarı eklendi (1.1.1.1, 8.8.8.8)."
         fi
-        if command -v getent >/dev/null 2>&1 && ! getent hosts deb.debian.org >/dev/null 2>&1 \
-           && ! getent hosts google.com >/dev/null 2>&1; then
+        T=""; command -v timeout >/dev/null 2>&1 && T="timeout 15"
+        echo "[i] DNS sunucuları: $(grep "^nameserver" /etc/resolv.conf | awk "{print \$2}" | tr "\n" " ")"
+        if command -v getent >/dev/null 2>&1 && ! $T getent hosts deb.debian.org >/dev/null 2>&1 \
+           && ! $T getent hosts google.com >/dev/null 2>&1; then
             echo "[!] Dağıtım içinden internete (DNS) ulaşılamıyor."
             echo "SSHPHONE_FAILED: (ağ/DNS)"; exit 1
-        fi'
+        fi
+        echo "[✓] İnternet bağlantısı var."'
     inner="$preamble"$'\n'"$inner"'
         echo "[4/4] Araçlar kuruluyor: $P"
         if ! inst $P; then
