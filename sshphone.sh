@@ -463,7 +463,7 @@ setup_distro_tools() {
         ubuntu|debian)
             inner='export DEBIAN_FRONTEND=noninteractive
                 # IPv6 çalışmayan ağlarda apt sessizce takılır; kalıcı olarak IPv4 zorlanır.
-                # proot içinde apt'nin _apt kullanıcısına geçmesi/seccomp kullanması da takılmaya yol açar.
+                # proot içinde apt sandbox kullanıcısı (_apt) ve seccomp da takılmaya yol açar.
                 mkdir -p /etc/apt/apt.conf.d
                 printf "Acquire::ForceIPv4 \"true\";\nAPT::Sandbox::User \"root\";\nAPT::Sandbox::Seccomp \"false\";\nAcquire::Retries \"3\";\nAcquire::http::Timeout \"30\";\nAcquire::https::Timeout \"30\";\n" > /etc/apt/apt.conf.d/99sshphone
                 N="-o Acquire::ForceIPv4=true -o APT::Sandbox::User=root -o APT::Sandbox::Seccomp=false -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
