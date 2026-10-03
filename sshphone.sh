@@ -202,6 +202,7 @@ distro_installed() {
 # bu dağıtıma ait proot süreçlerini durdurur.
 stop_distro_sessions() {
     local d="$1" pids
+    proot-distro kill "$d" >/dev/null 2>&1 || true
     pids=$( { pgrep -f "^[^ ]*proot[^ ]* .*(installed-rootfs|containers)/$d/" ; pgrep -f "proot-distro (login|install|run) $d"; } 2>/dev/null \
         | grep -vx "$$" | sort -u | tr '\n' ' ')
     [ -n "${pids// /}" ] || return 0
@@ -435,9 +436,12 @@ setup_distro_tools() {
     case "$d" in
         ubuntu|debian)
             inner='export DEBIAN_FRONTEND=noninteractive
-                O="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
-                for i in 1 2 3; do apt-get update && break; echo "apt update tekrar deneniyor ($i)..."; sleep 5; done
+                N="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+                O="$N -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
+                echo "[2/4] Paket listesi indiriliyor..."
+                for i in 1 2 3; do apt-get $N update && break; echo "apt update tekrar deneniyor ($i)..."; sleep 5; done
                 dpkg --configure -a || true
+                echo "[3/4] Sistem güncelleniyor..."
                 apt-get -y $O full-upgrade || echo "[!] Yükseltme tamamlanamadı, araç kurulumuna devam ediliyor."
                 P="sudo nano curl wget git htop ca-certificates locales tzdata iproute2 iputils-ping net-tools"' ;;
         alpine)
@@ -459,7 +463,21 @@ setup_distro_tools() {
         archlinux|manjaro)        inner="$inner"$'\n''inst() { pacman -S --noconfirm --needed "$@"; }' ;;
         fedora|rockylinux|almalinux) inner="$inner"$'\n''inst() { dnf -y install "$@"; }' ;;
     esac
-    inner="$inner"'
+    # Docker/OCI imajlarında /etc/resolv.conf çoğu zaman boştur; o zaman
+    # paket yöneticisi hiçbir şey yazmadan sonsuza dek bekler.
+    local preamble='echo "[1/4] Ağ bağlantısı kontrol ediliyor..."
+        if ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
+            rm -f /etc/resolv.conf
+            printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf
+            echo "[i] DNS ayarı eklendi (1.1.1.1, 8.8.8.8)."
+        fi
+        if command -v getent >/dev/null 2>&1 && ! getent hosts deb.debian.org >/dev/null 2>&1 \
+           && ! getent hosts google.com >/dev/null 2>&1; then
+            echo "[!] Dağıtım içinden internete (DNS) ulaşılamıyor."
+            echo "SSHPHONE_FAILED: (ağ/DNS)"; exit 1
+        fi'
+    inner="$preamble"$'\n'"$inner"'
+        echo "[4/4] Araçlar kuruluyor: $P"
         if ! inst $P; then
             F=""
             for p in $P; do inst "$p" || F="$F $p"; done
@@ -467,9 +485,12 @@ setup_distro_tools() {
         fi'
 
     step "$d içinde temel araçlar kuruluyor (sudo, nano, curl, git, htop...)"
-    local out rc
-    out=$(proot-distro login "$d" -- sh -c "$inner" 2>&1 | tee /dev/stderr)
+    stop_distro_sessions "$d"
+    local out rc log
+    log=$(mktemp)
+    proot-distro login "$d" -- sh -c "$inner" 2>&1 | tee "$log"
     rc=$?
+    out=$(cat "$log"); rm -f "$log"
     if [ "$rc" -eq 0 ]; then
         ok "$d içine temel araçlar kuruldu."
         return 0
