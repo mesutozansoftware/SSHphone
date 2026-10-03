@@ -455,7 +455,10 @@ setup_distro_tools() {
     case "$d" in
         ubuntu|debian)
             inner='export DEBIAN_FRONTEND=noninteractive
-                N="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+                # IPv6 çalışmayan ağlarda apt sessizce takılır; kalıcı olarak IPv4 zorlanır.
+                mkdir -p /etc/apt/apt.conf.d
+                printf "Acquire::ForceIPv4 \"true\";\nAcquire::Retries \"3\";\nAcquire::http::Timeout \"30\";\nAcquire::https::Timeout \"30\";\n" > /etc/apt/apt.conf.d/99sshphone
+                N="-o Acquire::ForceIPv4=true -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
                 O="$N -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
                 echo "[2/4] Paket listesi indiriliyor..."
                 for i in 1 2 3; do apt-get $N update && break; echo "apt update tekrar deneniyor ($i)..."; sleep 5; done
