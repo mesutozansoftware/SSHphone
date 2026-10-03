@@ -39,7 +39,7 @@ PD_DIR="$PREFIX/var/lib/proot-distro"
 HOOK_BEGIN="# >>> sshphone >>>"
 HOOK_END="# <<< sshphone <<<"
 
-BASE_PACKAGES=(openssh procps iproute2 net-tools curl wget git nano htop tmux openssl termux-tools)
+BASE_PACKAGES=(openssh procps iproute2 net-tools curl wget git nano htop tmux openssl termux-tools python)
 
 # --------------------------------------------------------------------------- #
 #  Görünüm yardımcıları
@@ -228,7 +228,24 @@ get_ips() {
             /^[^ \t]/ { iface=$1; sub(":", "", iface) }
             /inet / { for (i=1;i<=NF;i++) if ($i=="inet") { ip=$(i+1); sub("addr:", "", ip); print iface" "ip } }')
     fi
-    printf '%s\n' "$out" | awk 'NF==2 && $1!="lo" && $2!~/^127\./'
+    # Android 13+ ağ arayüzlerini listelemeyi engelleyebilir; yedek yöntemler:
+    if [ -z "$(printf '%s' "$out" | awk 'NF==2 && $1!="lo" && $2!~/^127\./')" ]; then
+        # 1) SSH ile bağlıyken sunucu (telefon) adresi SSH_CONNECTION'ın 3. alanıdır
+        if [ -n "${SSH_CONNECTION:-}" ]; then
+            out="ssh-baglantisi $(awk '{print $3}' <<<"$SSH_CONNECTION")"
+        fi
+        # 2) Python varsa: UDP soketi "bağlayıp" yerel adresi okumak paket göndermez
+        local py
+        py=$(command -v python3 || command -v python)
+        if [ -n "$py" ]; then
+            local rip
+            rip=$("$py" -c 'import socket
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+s.connect(("192.0.2.1",9)); print(s.getsockname()[0])' 2>/dev/null)
+            [ -n "$rip" ] && out="$out"$'\n'"varsayilan $rip"
+        fi
+    fi
+    printf '%s\n' "$out" | awk 'NF==2 && $1!="lo" && $2!~/^127\./ && !seen[$2]++'
 }
 
 describe_iface() {
@@ -242,6 +259,8 @@ describe_iface() {
                 *) echo "VPN" ;;
             esac ;;
         swlan*|ap*|rndis*|bt-pan*) echo "Hotspot / paylaşım" ;;
+        ssh-baglantisi) echo "Şu an SSH ile bağlandığınız adres" ;;
+        varsayilan) echo "Varsayılan ağ (genelde Wi-Fi)" ;;
         *) echo "$iface" ;;
     esac
 }
@@ -677,7 +696,8 @@ show_info() {
         done <<<"$ips"
     else
         warn "IP adresi otomatik bulunamadı (Android kısıtlaması olabilir)."
-        echo "  Ayarlar > Wi-Fi > bağlı ağ ayrıntılarından IP'yi öğrenip:"
+        echo "  Ayarlar > Ağ ve internet > İnternet > bağlı Wi-Fi'nin ⚙️ simgesi > IP adresi"
+        echo "  bölümünden IP'yi öğrenip (veya 'pkg install python' kurup tekrar deneyin):"
         printf '    %sssh -p %s %s@<TELEFON_IP>%s\n' "$C_BOLD" "$SSHPHONE_PORT" "$user" "$C_RESET"
     fi
     echo
