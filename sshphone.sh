@@ -409,6 +409,64 @@ restart_sshd() {
 # --------------------------------------------------------------------------- #
 DISTROS=(ubuntu debian alpine archlinux fedora opensuse void manjaro rockylinux almalinux)
 
+# Dağıtım içine temel araçları kurar. Güncelleme adımı hata verse bile
+# kurulum denenir; toplu kurulum başarısız olursa paketler tek tek kurulur.
+# shellcheck disable=SC2016  # iç komutlar dağıtım içinde genişletilir
+setup_distro_tools() {
+    local d="$1" inner
+    case "$d" in
+        ubuntu|debian)
+            inner='export DEBIAN_FRONTEND=noninteractive
+                O="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
+                for i in 1 2 3; do apt-get update && break; echo "apt update tekrar deneniyor ($i)..."; sleep 5; done
+                dpkg --configure -a || true
+                apt-get -y $O full-upgrade || echo "[!] Yükseltme tamamlanamadı, araç kurulumuna devam ediliyor."
+                P="sudo nano curl wget git htop ca-certificates locales tzdata iproute2 iputils-ping net-tools"' ;;
+        alpine)
+            inner='for i in 1 2 3; do apk update && break; sleep 5; done
+                apk upgrade || true
+                P="bash sudo nano curl wget git htop ca-certificates"' ;;
+        archlinux|manjaro)
+            inner='for i in 1 2 3; do pacman -Sy --noconfirm && break; sleep 5; done
+                pacman -Su --noconfirm || true
+                P="sudo nano curl wget git htop"' ;;
+        fedora|rockylinux|almalinux)
+            inner='dnf -y upgrade || true
+                P="sudo nano curl wget git htop"' ;;
+        *) return 0 ;;
+    esac
+    case "$d" in
+        ubuntu|debian)            inner="$inner"$'\n''inst() { apt-get -y $O install "$@"; }' ;;
+        alpine)                   inner="$inner"$'\n''inst() { apk add "$@"; }' ;;
+        archlinux|manjaro)        inner="$inner"$'\n''inst() { pacman -S --noconfirm --needed "$@"; }' ;;
+        fedora|rockylinux|almalinux) inner="$inner"$'\n''inst() { dnf -y install "$@"; }' ;;
+    esac
+    inner="$inner"'
+        if ! inst $P; then
+            F=""
+            for p in $P; do inst "$p" || F="$F $p"; done
+            if [ -n "$F" ]; then echo "SSHPHONE_FAILED:$F"; exit 1; fi
+        fi'
+
+    step "$d içinde temel araçlar kuruluyor (sudo, nano, curl, git, htop...)"
+    local out rc
+    out=$(proot-distro login "$d" -- sh -c "$inner" 2>&1 | tee /dev/stderr)
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        ok "$d içine temel araçlar kuruldu."
+        return 0
+    fi
+    local failed
+    failed=$(printf '%s\n' "$out" | sed -n 's/^SSHPHONE_FAILED://p' | tail -n1)
+    if [ -n "$failed" ]; then
+        warn "Kurulamayan paketler:$failed"
+    else
+        warn "Araç kurulumu tamamlanamadı (ağ bağlantısını kontrol edin)."
+    fi
+    info "Tekrar denemek için: sshphone distro $d"
+    return 1
+}
+
 install_distro() {
     local d="${1:-}"
     if [ -z "$d" ]; then
@@ -431,21 +489,10 @@ install_distro() {
     else
         step "$d kuruluyor (internet hızınıza göre birkaç dakika sürebilir)"
         proot-distro install "$d" || die "$d kurulamadı. Geçerli adlar için: proot-distro list"
-        step "$d içinde temel araçlar kuruluyor"
-        case "$d" in
-            ubuntu|debian)
-                proot-distro login "$d" -- bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get -y upgrade && apt-get -y install sudo nano curl wget git htop ca-certificates locales tzdata iproute2 iputils-ping net-tools' \
-                    || warn "Bazı paketler kurulamadı." ;;
-            alpine)
-                proot-distro login "$d" -- sh -c 'apk update && apk add bash sudo nano curl wget git htop ca-certificates' || warn "Bazı paketler kurulamadı." ;;
-            archlinux|manjaro)
-                proot-distro login "$d" -- bash -c 'pacman -Syu --noconfirm sudo nano curl wget git htop' || warn "Bazı paketler kurulamadı." ;;
-            fedora|rockylinux|almalinux)
-                proot-distro login "$d" -- bash -c 'dnf -y install sudo nano curl wget git htop' || warn "Bazı paketler kurulamadı." ;;
-            *) ;;
-        esac
         ok "$d kuruldu. Giriş: sshphone linux"
     fi
+    # Her seferinde çalışır: yarım kalan araç kurulumu tekrar denendiğinde tamamlanır.
+    setup_distro_tools "$d"
 
     load_config
     SSHPHONE_DISTRO="$d"
